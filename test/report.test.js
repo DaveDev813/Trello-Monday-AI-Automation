@@ -25,6 +25,24 @@ test('parseReportCliArgs accepts the four required positional report parameters'
   });
 });
 
+test('parseReportCliArgs resolves project folders against BASE_PROJECTS_DIR', () => {
+  assert.deepEqual(
+    parseReportCliArgs(['client-booking-portal-v2', 'feature/x', 'UAT', '123'], {
+      BASE_PROJECTS_DIR: '/apps'
+    }),
+    {
+      ai: undefined,
+      branchName: 'feature/x',
+      environment: 'UAT',
+      help: false,
+      projectDir: '/apps/client-booking-portal-v2',
+      publish: false,
+      pulseId: '123',
+      yes: false
+    }
+  );
+});
+
 test('parseReportCliArgs accepts publish options', () => {
   assert.deepEqual(parseReportCliArgs(['--publish', '--pulse-id', '123', '--file', 'report.md', '--yes']), {
     ai: undefined,

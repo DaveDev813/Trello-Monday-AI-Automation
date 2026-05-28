@@ -32,6 +32,7 @@ Options:
 
 Environment:
   MONDAY_API_TOKEN       Required only when publishing.
+  BASE_PROJECTS_DIR      Optional base folder for relative project folder names.
   REPORT_AI_CLI          Optional default AI CLI: codex or chatgpt.
   REPORT_AI_COMMAND      Optional custom command that reads the prompt from stdin and writes the report to stdout.
 `;
@@ -196,10 +197,19 @@ export function parseReportCliArgs(argv, env = process.env) {
     options.branchName ??= positionals[1];
     options.environment ??= positionals[2];
     options.pulseId ??= positionals[3];
+    options.projectDir = resolveReportProjectDir(options.projectDir, env);
   }
 
   validateDiffCharLimit(options.diffCharLimit);
   return options;
+}
+
+export function resolveReportProjectDir(projectDir, env = process.env) {
+  if (!projectDir || path.isAbsolute(projectDir) || !env.BASE_PROJECTS_DIR) {
+    return projectDir;
+  }
+
+  return path.resolve(env.BASE_PROJECTS_DIR, projectDir);
 }
 
 async function writeDraftReport(args) {

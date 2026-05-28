@@ -97,6 +97,18 @@ Generate a reviewed monday pulse update from a git project folder, branch, envir
 npm run report -- /path/to/client-booking-portal-v2 feature/boards/9255430878/pulses/12102530645 UAT 12102530645
 ```
 
+If your projects live under one shared folder, set `BASE_PROJECTS_DIR` in `.env`:
+
+```env
+BASE_PROJECTS_DIR=/path/to/projects
+```
+
+Then pass only the project folder name:
+
+```sh
+npm run report -- client-booking-portal-v2 feature/boards/9255430878/pulses/12102530645 UAT 12102530645
+```
+
 Equivalent named options:
 
 ```sh
