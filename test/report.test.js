@@ -86,7 +86,10 @@ test('buildReportPrompt includes required report sections and git context', () =
   assert.match(prompt, /Git Project - client-booking-portal-v2/);
   assert.match(prompt, /Branch name - feature\/boards\/9255430878\/pulses\/12102530645/);
   assert.match(prompt, /How to Test/);
-  assert.match(prompt, /Change Log must be a brief human-readable list/);
+  assert.match(prompt, /developer who completed this work/);
+  assert.match(prompt, /Description and Change Log sections must use first-person wording/);
+  assert.match(prompt, /what I delivered and how it affects the product/);
+  assert.match(prompt, /Change Log must be a brief human-readable list of what I changed/);
   assert.match(prompt, /Do not include commit IDs, author names, commit dates, or raw git metadata/);
   assert.match(prompt, /How to Test must be written for a normal, non-technical web user/);
   assert.match(prompt, /- Add booking confirmation/);
@@ -148,11 +151,11 @@ Branch name - feature/x
 
 Description
 
-Booking users now see clearer confirmation behavior.
+I improved the booking confirmation behavior so users get clearer feedback after booking.
 
 Change Log
 
-- Improved the booking confirmation flow.
+- I improved the booking confirmation flow.
 
 How to Test
 

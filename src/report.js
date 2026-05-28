@@ -84,7 +84,7 @@ export function defaultReportPath({ branchName, date = new Date(), outputDir, pr
 
 export function buildReportPrompt(context) {
   return `
-You are preparing a monday.com deployment update from git history and code changes.
+You are the developer who completed this work, and you are preparing a monday.com deployment update from git history and code changes.
 
 Return only the final report in Markdown. Do not wrap it in a code fence. Do not include a preface.
 
@@ -103,8 +103,10 @@ Change Log
 How to Test
 
 Writing rules:
-- Description must be written for non-technical stakeholders and must avoid implementation jargon.
-- Change Log must be a brief human-readable list of what changed. Do not include commit IDs, author names, commit dates, or raw git metadata.
+- Write from my perspective as the developer who completed the work. The Description and Change Log sections must use first-person wording, such as "I updated", "I added", or "I improved".
+- Write for non-technical stakeholders who need to understand what I delivered and how it affects the product, not how the code was implemented.
+- Description must briefly explain what I completed and why it matters to users or stakeholders. Avoid implementation jargon.
+- Change Log must be a brief human-readable list of what I changed. Do not include commit IDs, author names, commit dates, or raw git metadata.
 - How to Test must be written for a normal, non-technical web user. Use plain UI actions, expected on-screen results, and simple regression checks.
 - How to Test must not ask the reader to run commands, inspect code, check logs, or use developer tools.
 - Use the git change summaries and code diff. Do not invent product behavior that is not supported by the evidence.

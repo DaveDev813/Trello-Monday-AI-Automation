@@ -146,8 +146,8 @@ The report includes:
 - `Environment - Deployed in UAT` or `Environment - Deployed in Live`
 - `Git Project`
 - `Branch name`
-- `Description`
-- `Change Log` with brief descriptions of what changed, without commit IDs or author names
+- `Description` written from the developer's first-person perspective for non-technical stakeholders
+- `Change Log` with brief first-person descriptions of what the developer changed, without commit IDs or author names
 - `How to Test` written as plain web-user steps for non-technical reviewers
 
 By default the branch is compared with `origin/HEAD`, `origin/main`, `origin/master`, `main`, or `master`, whichever exists first. Use `--base <ref>` when a different base branch is needed.
