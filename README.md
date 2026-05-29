@@ -118,7 +118,15 @@ npm run report -- --project-dir /path/to/client-booking-portal-v2 --branch featu
 The command writes a Markdown draft under this automation project's `reports/` folder, regardless of the terminal's current directory, and does **not** post to monday.com. Review and edit the file first. Then publish the reviewed version:
 
 ```sh
-npm run report -- --publish --pulse-id 12102530645 --file reports/<generated-report>.md
+npm run report -- --publish --pulse-id 12102530645 --file <generated-report>.md
+```
+
+Because generated reports are stored in this project's `reports/` folder, publishing accepts just the report filename.
+
+To mention monday users when publishing, pass their monday account email addresses separated by commas:
+
+```sh
+npm run report -- --publish --pulse-id 12102530645 --file <generated-report>.md --mention-emails david@example.com,jane@example.com
 ```
 
 Publishing requires only `MONDAY_API_TOKEN`. Trello credentials are not required for reports.

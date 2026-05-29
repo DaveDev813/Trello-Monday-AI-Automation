@@ -7,7 +7,7 @@ import readline from 'node:readline/promises';
 
 import { readConfig } from './config.js';
 import { loadDotEnv } from './env.js';
-import { createMondayUpdate } from './monday.js';
+import { createMondayUpdate, fetchMondayUsersByEmails } from './monday.js';
 import { defaultReportPath, generateDeploymentReport } from './report.js';
 
 export const DEFAULT_REPORTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'reports');
@@ -16,7 +16,7 @@ const HELP = `
 Usage:
   npm run report -- <project-dir> <branch> <UAT|LIVE> <pulseId>
   npm run report -- --project-dir <dir> --branch <branch> --env <UAT|LIVE> --pulse-id <id>
-  npm run report -- --publish --pulse-id <id> --file <report.md>
+  npm run report -- --publish --pulse-id <id> --file <filename.md>
 
 Options:
   --project-dir <dir>    Git project folder to inspect. Alias: --project.
@@ -28,7 +28,8 @@ Options:
   --diff-char-limit <n>  Maximum unified diff characters sent to the AI CLI.
   --ai <codex|chatgpt>   AI CLI to use. Defaults to codex.
   --publish              Post a reviewed report file to the monday pulse.
-  --file <path>          Reviewed Markdown report file to publish.
+  --file <filename>      Reviewed Markdown report filename from reports/ to publish.
+  --mention-emails <csv> Comma-separated monday user emails to mention when publishing. Alias: --mentions.
   --yes                  Skip the interactive publish confirmation.
   -h, --help             Show help.
 
@@ -165,6 +166,27 @@ export function parseReportCliArgs(argv, env = process.env) {
       continue;
     }
 
+    if (arg === '--mention-emails' || arg === '--mention-email' || arg === '--mentions') {
+      options.mentionEmails = mergeMentionEmails(options.mentionEmails, readRequiredValue(argv, index, arg));
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--mention-emails=')) {
+      options.mentionEmails = mergeMentionEmails(options.mentionEmails, arg.slice('--mention-emails='.length));
+      continue;
+    }
+
+    if (arg.startsWith('--mention-email=')) {
+      options.mentionEmails = mergeMentionEmails(options.mentionEmails, arg.slice('--mention-email='.length));
+      continue;
+    }
+
+    if (arg.startsWith('--mentions=')) {
+      options.mentionEmails = mergeMentionEmails(options.mentionEmails, arg.slice('--mentions='.length));
+      continue;
+    }
+
     if (arg === '--ai') {
       options.ai = readRequiredValue(argv, index, '--ai');
       index += 1;
@@ -245,12 +267,14 @@ async function writeDraftReport(args) {
   console.log(`Base ref: ${result.context.baseRef}`);
   console.log(`Merge base: ${result.context.mergeBase}`);
   console.log('Review and edit the Markdown file, then publish it with:');
-  console.log(`npm run report -- --publish --pulse-id ${args.pulseId} --file ${quoteForShell(path.resolve(outputPath))}`);
+  console.log(
+    `npm run report -- --publish --pulse-id ${args.pulseId} --file ${quoteForShell(formatPublishReportFileValue(outputPath))}`
+  );
 }
 
 async function publishReviewedReport(args) {
   requirePublishArgs(args);
-  const filePath = path.resolve(args.filePath);
+  const filePath = resolvePublishReportFilePath(args.filePath);
   const body = fs.readFileSync(filePath, 'utf8').trim();
 
   if (!body) {
@@ -266,9 +290,14 @@ async function publishReviewedReport(args) {
     requireTrelloCredentials: false,
     requireTrelloTarget: false
   });
-  const update = await createMondayUpdate(args.pulseId, body, config);
+  const mentionsList = await resolveMentionList(args.mentionEmails ?? [], config);
+  const update = await createMondayUpdate(args.pulseId, body, config, globalThis.fetch, { mentionsList });
 
   console.log(`[posted] monday update ${update.id} added to pulse ${args.pulseId}.`);
+
+  if (args.mentionEmails?.length) {
+    console.log(`[mentioned] ${args.mentionEmails.join(', ')}`);
+  }
 }
 
 async function confirmPublish(args, body, filePath) {
@@ -316,10 +345,100 @@ function requirePublishArgs(args) {
   }
 }
 
+export function resolvePublishReportFilePath(filePath, reportsDir = DEFAULT_REPORTS_DIR) {
+  const rawFilePath = String(filePath ?? '').trim();
+
+  if (!rawFilePath) {
+    return rawFilePath;
+  }
+
+  if (path.isAbsolute(rawFilePath)) {
+    return path.resolve(rawFilePath);
+  }
+
+  const normalizedFilePath = path.normalize(rawFilePath);
+
+  if (path.dirname(normalizedFilePath) === '.') {
+    return path.resolve(reportsDir, rawFilePath);
+  }
+
+  return path.resolve(rawFilePath);
+}
+
+export function formatPublishReportFileValue(outputPath, reportsDir = DEFAULT_REPORTS_DIR) {
+  const resolvedOutputPath = path.resolve(outputPath);
+  const resolvedReportsDir = path.resolve(reportsDir);
+  const relativePath = path.relative(resolvedReportsDir, resolvedOutputPath);
+  const isInReportsDir =
+    relativePath &&
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath);
+
+  if (isInReportsDir && path.dirname(relativePath) === '.') {
+    return relativePath;
+  }
+
+  return resolvedOutputPath;
+}
+
 function validateDiffCharLimit(value) {
   if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
     throw new Error('--diff-char-limit must be a positive number.');
   }
+}
+
+function mergeMentionEmails(existingEmails = [], value) {
+  const emails = [...existingEmails, ...parseMentionEmails(value)];
+  const seen = new Set();
+  const uniqueEmails = [];
+
+  for (const email of emails) {
+    const normalizedEmail = email.toLowerCase();
+
+    if (seen.has(normalizedEmail)) {
+      continue;
+    }
+
+    seen.add(normalizedEmail);
+    uniqueEmails.push(email);
+  }
+
+  return uniqueEmails;
+}
+
+export function parseMentionEmails(value) {
+  const emails = String(value ?? '')
+    .split(',')
+    .map((email) => email.trim())
+    .filter(Boolean);
+
+  for (const email of emails) {
+    if (!/^[^\s@,]+@[^\s@,]+$/.test(email)) {
+      throw new Error(`Invalid monday mention email: ${email}`);
+    }
+  }
+
+  return emails;
+}
+
+async function resolveMentionList(emails, config) {
+  if (!emails.length) {
+    return [];
+  }
+
+  const users = await fetchMondayUsersByEmails(emails, config);
+  const usersByEmail = new Map(users.map((user) => [String(user.email ?? '').trim().toLowerCase(), user]));
+  const missingEmails = emails.filter((email) => !usersByEmail.has(email.toLowerCase()));
+
+  if (missingEmails.length) {
+    throw new Error(`monday.com did not return users for mention email(s): ${missingEmails.join(', ')}`);
+  }
+
+  return emails.map((email) => ({
+    id: String(usersByEmail.get(email.toLowerCase()).id),
+    type: 'User'
+  }));
 }
 
 function readRequiredValue(argv, index, optionName) {

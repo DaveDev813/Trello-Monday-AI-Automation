@@ -33,6 +33,24 @@ const CREATE_UPDATE_MUTATION = `
   }
 `;
 
+const CREATE_UPDATE_WITH_MENTIONS_MUTATION = `
+  mutation CreateMondayUpdate($itemId: ID!, $body: String!, $mentionsList: [UpdateMention!]) {
+    create_update(item_id: $itemId, body: $body, mentions_list: $mentionsList) {
+      id
+    }
+  }
+`;
+
+const USERS_BY_EMAILS_QUERY = `
+  query MondayUsersByEmails($emails: [String!]!) {
+    users(emails: $emails) {
+      id
+      name
+      email
+    }
+  }
+`;
+
 export async function fetchMondayItems(itemIds, config, fetchImpl = globalThis.fetch) {
   const response = await requestJson(
     config.mondayApiUrl,
@@ -76,13 +94,11 @@ export async function fetchMondayItems(itemIds, config, fetchImpl = globalThis.f
   return items;
 }
 
-export async function createMondayUpdate(itemId, body, config, fetchImpl = globalThis.fetch) {
-  if (!itemId) {
-    throw new Error('Provide a monday.com pulse/item ID.');
-  }
+export async function fetchMondayUsersByEmails(emails, config, fetchImpl = globalThis.fetch) {
+  const uniqueEmails = normalizeEmailList(emails);
 
-  if (!body?.trim()) {
-    throw new Error('Provide a non-empty monday.com update body.');
+  if (!uniqueEmails.length) {
+    return [];
   }
 
   const response = await requestJson(
@@ -95,11 +111,57 @@ export async function createMondayUpdate(itemId, body, config, fetchImpl = globa
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query: CREATE_UPDATE_MUTATION,
+        query: USERS_BY_EMAILS_QUERY,
         variables: {
-          body,
-          itemId: String(itemId)
+          emails: uniqueEmails
         }
+      })
+    },
+    fetchImpl
+  );
+
+  if (response.errors?.length) {
+    const message = response.errors.map((error) => error.message).join('; ');
+    throw new ApiError(`monday.com GraphQL error: ${message}`, {
+      body: response.errors,
+      url: config.mondayApiUrl
+    });
+  }
+
+  return response.data?.users ?? [];
+}
+
+export async function createMondayUpdate(itemId, body, config, fetchImpl = globalThis.fetch, options = {}) {
+  if (!itemId) {
+    throw new Error('Provide a monday.com pulse/item ID.');
+  }
+
+  if (!body?.trim()) {
+    throw new Error('Provide a non-empty monday.com update body.');
+  }
+
+  const mentionsList = normalizeMentionsList(options.mentionsList);
+  const variables = {
+    body,
+    itemId: String(itemId)
+  };
+
+  if (mentionsList.length) {
+    variables.mentionsList = mentionsList;
+  }
+
+  const response = await requestJson(
+    config.mondayApiUrl,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: config.mondayApiToken,
+        'API-Version': config.mondayApiVersion,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: mentionsList.length ? CREATE_UPDATE_WITH_MENTIONS_MUTATION : CREATE_UPDATE_MUTATION,
+        variables
       })
     },
     fetchImpl
@@ -120,6 +182,49 @@ export async function createMondayUpdate(itemId, body, config, fetchImpl = globa
   }
 
   return update;
+}
+
+function normalizeEmailList(emails) {
+  if (!Array.isArray(emails)) {
+    throw new Error('Provide monday user emails as an array.');
+  }
+
+  const seen = new Set();
+  const uniqueEmails = [];
+
+  for (const email of emails) {
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+
+    if (!normalizedEmail || seen.has(normalizedEmail)) {
+      continue;
+    }
+
+    seen.add(normalizedEmail);
+    uniqueEmails.push(normalizedEmail);
+  }
+
+  return uniqueEmails;
+}
+
+function normalizeMentionsList(mentionsList) {
+  if (!mentionsList) {
+    return [];
+  }
+
+  if (!Array.isArray(mentionsList)) {
+    throw new Error('Provide monday update mentions as an array.');
+  }
+
+  return mentionsList.map((mention) => {
+    if (!mention?.id) {
+      throw new Error('Each monday update mention requires an id.');
+    }
+
+    return {
+      id: String(mention.id),
+      type: mention.type || 'User'
+    };
+  });
 }
 
 export function extractMondayDescriptionText(description) {

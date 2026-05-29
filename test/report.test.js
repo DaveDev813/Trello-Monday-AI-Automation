@@ -3,7 +3,13 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { DEFAULT_REPORTS_DIR, parseReportCliArgs } from '../src/report-cli.js';
+import {
+  DEFAULT_REPORTS_DIR,
+  formatPublishReportFileValue,
+  parseMentionEmails,
+  parseReportCliArgs,
+  resolvePublishReportFilePath
+} from '../src/report-cli.js';
 import {
   buildCodexExecArgs,
   buildReportPrompt,
@@ -58,8 +64,54 @@ test('parseReportCliArgs accepts publish options', () => {
   });
 });
 
+test('parseReportCliArgs accepts comma-separated mention emails', () => {
+  assert.deepEqual(
+    parseReportCliArgs([
+      '--publish',
+      '--pulse-id',
+      '123',
+      '--file',
+      'report.md',
+      '--mention-emails',
+      'david@example.com, jane@example.com',
+      '--mentions=David@example.com'
+    ]),
+    {
+      ai: undefined,
+      filePath: 'report.md',
+      help: false,
+      mentionEmails: ['david@example.com', 'jane@example.com'],
+      publish: true,
+      pulseId: '123',
+      yes: false
+    }
+  );
+});
+
+test('parseMentionEmails rejects invalid mention emails', () => {
+  assert.throws(() => parseMentionEmails('david,dev@example.com'), /Invalid monday mention email: david/);
+});
+
 test('default report directory is anchored to the automation project', () => {
   assert.equal(DEFAULT_REPORTS_DIR, path.join(projectRoot, 'reports'));
+});
+
+test('formatPublishReportFileValue returns only filenames for reports directory files', () => {
+  assert.equal(
+    formatPublishReportFileValue(path.join(DEFAULT_REPORTS_DIR, 'generated-report.md')),
+    'generated-report.md'
+  );
+});
+
+test('resolvePublishReportFilePath resolves bare filenames from the reports directory', () => {
+  assert.equal(
+    resolvePublishReportFilePath('generated-report.md'),
+    path.join(DEFAULT_REPORTS_DIR, 'generated-report.md')
+  );
+  assert.equal(
+    resolvePublishReportFilePath(path.join('reports', 'generated-report.md')),
+    path.join(projectRoot, 'reports', 'generated-report.md')
+  );
 });
 
 test('normalizeEnvironment formats monday report environment lines', () => {
