@@ -142,7 +142,7 @@ export async function createMondayUpdate(itemId, body, config, fetchImpl = globa
 
   const mentionsList = normalizeMentionsList(options.mentionsList);
   const variables = {
-    body,
+    body: mentionsList.length ? appendMentionLineBreak(body) : body,
     itemId: String(itemId)
   };
 
@@ -225,6 +225,10 @@ function normalizeMentionsList(mentionsList) {
       type: mention.type || 'User'
     };
   });
+}
+
+function appendMentionLineBreak(body) {
+  return `${body.trimEnd()}\n`;
 }
 
 export function extractMondayDescriptionText(description) {

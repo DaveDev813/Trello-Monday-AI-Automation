@@ -141,7 +141,7 @@ test('createMondayUpdate posts monday mentions when provided', async () => {
     const body = JSON.parse(options.body);
     assert.match(body.query, /mentions_list: \$mentionsList/);
     assert.deepEqual(body.variables, {
-      body: 'Reviewed report',
+      body: 'Reviewed report\n',
       itemId: '123',
       mentionsList: [
         {

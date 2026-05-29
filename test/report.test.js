@@ -152,6 +152,13 @@ test('buildReportPrompt includes required report sections and git context', () =
   assert.match(prompt, /Change Log must be a brief human-readable list of what I changed/);
   assert.match(prompt, /Do not include commit IDs, author names, commit dates, or raw git metadata/);
   assert.match(prompt, /How to Test must be written for a normal, non-technical web user/);
+  assert.match(prompt, /Scope the report strictly to changes reachable from the provided branch ref/);
+  assert.match(prompt, /Treat the branch-only evidence below as the complete evidence set/);
+  assert.match(prompt, /Do not use project files, local working tree state, uncommitted changes/);
+  assert.match(prompt, /Report evidence:/);
+  assert.match(prompt, /Branch tip: feature\/boards\/9255430878\/pulses\/12102530645/);
+  assert.match(prompt, /Evidence range: base123..feature\/boards\/9255430878\/pulses\/12102530645/);
+  assert.doesNotMatch(prompt, /Project directory:/);
   assert.match(prompt, /- Add booking confirmation/);
 });
 
@@ -166,6 +173,10 @@ test('generateDeploymentReport collects git context and delegates writing to the
     }
 
     if (key === 'rev-parse --verify --quiet feature/x^{commit}') {
+      return 'branch123\n';
+    }
+
+    if (key === 'rev-parse feature/x^{commit}') {
       return 'branch123\n';
     }
 
@@ -201,6 +212,7 @@ test('generateDeploymentReport collects git context and delegates writing to the
   };
   const aiRunner = async (prompt) => {
     assert.match(prompt, /Add booking confirmation/);
+    assert.match(prompt, /Evidence range: base123..feature\/x/);
     return `
 \`\`\`markdown
 Environment - Deployed in UAT
@@ -238,9 +250,92 @@ How to Test
   );
 
   assert.equal(result.context.baseRef, 'origin/main');
+  assert.equal(result.context.branchTip, 'branch123');
+  assert.equal(result.context.evidenceScope, 'branch-only');
   assert.equal(result.context.projectName, 'client-booking-portal-v2');
   assert.match(result.report, /^Environment - Deployed in UAT/);
   assert.ok(calls.some((call) => call.args[0] === 'diff'));
+});
+
+test('generateDeploymentReport falls back to latest branch commit when base already contains the branch tip', async () => {
+  const fakeGit = (cwd, args) => {
+    const key = args.join(' ');
+
+    if (key === 'rev-parse --show-toplevel') {
+      return '/repo/client-booking-portal-v2\n';
+    }
+
+    if (key === 'rev-parse --verify --quiet feature/x^{commit}') {
+      return 'branch123\n';
+    }
+
+    if (key === 'rev-parse feature/x^{commit}') {
+      return 'branch123\n';
+    }
+
+    if (key === 'symbolic-ref --quiet --short refs/remotes/origin/HEAD') {
+      return 'origin/master\n';
+    }
+
+    if (key === 'rev-parse --verify --quiet origin/master^{commit}') {
+      return 'branch123\n';
+    }
+
+    if (key === 'merge-base origin/master feature/x') {
+      return 'branch123\n';
+    }
+
+    if (
+      key === 'log --pretty=format:- %s%n%b branch123..feature/x' ||
+      key === 'diff --stat --find-renames branch123..feature/x' ||
+      key === 'diff --name-status --find-renames branch123..feature/x' ||
+      key === 'diff --find-renames --no-ext-diff --unified=80 branch123..feature/x'
+    ) {
+      return '';
+    }
+
+    if (key === 'show --pretty=format:- %s%n%b --no-patch branch123') {
+      return '- Apply Welcome pages\n';
+    }
+
+    if (key === 'show --stat --find-renames --format= branch123') {
+      return 'backend/app/Controllers/HomeController.php | 34 +++++++++++++++++-------\n';
+    }
+
+    if (key === 'show --name-status --find-renames --format= branch123') {
+      return 'M\tbackend/app/Controllers/HomeController.php\n';
+    }
+
+    if (key === 'show --find-renames --no-ext-diff --unified=80 --format= branch123') {
+      return 'diff --git a/backend/app/Controllers/HomeController.php b/backend/app/Controllers/HomeController.php\n';
+    }
+
+    throw new Error(`Unexpected git call: ${key}`);
+  };
+  const aiRunner = async (prompt) => {
+    assert.match(prompt, /Apply Welcome pages/);
+    assert.match(prompt, /latest commit evidence from the provided branch/);
+    assert.match(prompt, /Evidence range: branch123\^!/);
+    assert.match(prompt, /selected base already contains the branch tip/);
+    return 'Environment - Deployed in UAT';
+  };
+
+  const result = await generateDeploymentReport(
+    {
+      branchName: 'feature/x',
+      environment: 'UAT',
+      projectDir: '/repo/client-booking-portal-v2',
+      pulseId: '123'
+    },
+    {
+      aiRunner,
+      git: fakeGit
+    }
+  );
+
+  assert.equal(result.context.evidenceScope, 'branch-tip');
+  assert.equal(result.context.evidenceRange, 'branch123^!');
+  assert.match(result.context.commitMessages, /Apply Welcome pages/);
 });
 
 test('normalizeAiReport strips wrapping markdown fences', () => {
@@ -314,6 +409,35 @@ test('buildCodexExecArgs includes approval flag when Codex CLI supports it', () 
   });
 
   assert.deepEqual(args, ['exec', '--cd', '/repo/project', '--ask-for-approval', 'never', '-']);
+});
+
+test('buildCodexExecArgs uses an isolated working directory when provided', () => {
+  const args = buildCodexExecArgs({
+    helpText: '--cd <DIR>\n--skip-git-repo-check\n--output-last-message <FILE>',
+    outputPath: '/tmp/report.md',
+    projectRoot: '/repo/project',
+    workingDir: '/tmp/monday-report-abc123'
+  });
+
+  assert.deepEqual(args, [
+    'exec',
+    '--cd',
+    '/tmp/monday-report-abc123',
+    '--skip-git-repo-check',
+    '--output-last-message',
+    '/tmp/report.md',
+    '-'
+  ]);
+});
+
+test('buildCodexExecArgs does not skip the git repo check for repo working directories', () => {
+  const args = buildCodexExecArgs({
+    helpText: '--cd <DIR>\n--skip-git-repo-check',
+    outputPath: '/tmp/report.md',
+    projectRoot: '/repo/project'
+  });
+
+  assert.deepEqual(args, ['exec', '--cd', '/repo/project', '-']);
 });
 
 test('truncateText appends a truncation notice', () => {

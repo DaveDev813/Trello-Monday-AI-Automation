@@ -266,6 +266,13 @@ async function writeDraftReport(args) {
   console.log(`Draft report written to: ${path.resolve(outputPath)}`);
   console.log(`Base ref: ${result.context.baseRef}`);
   console.log(`Merge base: ${result.context.mergeBase}`);
+  console.log(`Evidence scope: ${result.context.evidenceScope}`);
+  console.log(`Evidence range: ${result.context.evidenceRange}`);
+
+  if (result.context.evidenceNote) {
+    console.log(`Evidence note: ${result.context.evidenceNote}`);
+  }
+
   console.log('Review and edit the Markdown file, then publish it with:');
   console.log(
     `npm run report -- --publish --pulse-id ${args.pulseId} --file ${quoteForShell(formatPublishReportFileValue(outputPath))}`

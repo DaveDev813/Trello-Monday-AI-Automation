@@ -131,10 +131,10 @@ npm run report -- --publish --pulse-id 12102530645 --file <generated-report>.md 
 
 Publishing requires only `MONDAY_API_TOKEN`. Trello credentials are not required for reports.
 
-Report generation uses Codex CLI by default:
+Report generation uses Codex CLI by default from an empty temporary working directory. The prompt is self-contained and includes only branch-scoped git evidence collected from the provided branch:
 
 ```sh
-codex exec --cd <project-dir> --sandbox read-only --ask-for-approval never
+codex exec --cd <temp-dir> --skip-git-repo-check --sandbox read-only --ask-for-approval never
 ```
 
 On macOS, the report command also checks the Codex desktop app executable at `/Applications/Codex.app/Contents/Resources/codex`. If your install is somewhere else, set:
@@ -158,7 +158,7 @@ The report includes:
 - `Change Log` with brief first-person descriptions of what the developer changed, without commit IDs or author names
 - `How to Test` written as plain web-user steps for non-technical reviewers
 
-By default the branch is compared with `origin/HEAD`, `origin/main`, `origin/master`, `main`, or `master`, whichever exists first. Use `--base <ref>` when a different base branch is needed.
+By default the branch is compared with `origin/HEAD`, `origin/main`, `origin/master`, `main`, or `master`, whichever exists first. The generated draft is scoped to the merge-base-to-branch diff range for the branch you pass, so local uncommitted files and changes outside that branch are not part of the report. If the selected base already contains the branch tip, the draft falls back to the latest commit at the provided branch ref and labels that fallback in the prompt. Use `--base <ref>` when a different base branch is needed.
 
 ## Notes
 

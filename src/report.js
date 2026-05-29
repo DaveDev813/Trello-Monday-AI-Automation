@@ -20,6 +20,7 @@ export async function generateDeploymentReport(params, options = {}) {
   const projectRoot = resolveGitRoot(projectDir, git);
   const projectName = params.projectName || path.basename(projectRoot);
   const branchRef = resolveGitRef(projectRoot, branchName, git, 'branch');
+  const branchTip = git(projectRoot, ['rev-parse', `${branchRef}^{commit}`]).trim();
   const baseRef = params.baseRef
     ? resolveGitRef(projectRoot, params.baseRef, git, 'base')
     : resolveDefaultBaseRef(projectRoot, branchRef, git);
@@ -29,6 +30,7 @@ export async function generateDeploymentReport(params, options = {}) {
       baseRef,
       branchName,
       branchRef,
+      branchTip,
       diffCharLimit: options.diffCharLimit,
       environment,
       mergeBase,
@@ -83,6 +85,13 @@ export function defaultReportPath({ branchName, date = new Date(), outputDir, pr
 }
 
 export function buildReportPrompt(context) {
+  const evidenceLabel = context.evidenceLabel ?? 'branch-only evidence';
+  const evidenceRange = context.evidenceRange ?? `${context.mergeBase}..${context.branchRef}`;
+  const evidenceDescription =
+    context.evidenceDescription ??
+    `changes reachable from the provided branch ref and absent from the base ref: ${evidenceRange}`;
+  const evidenceNote = context.evidenceNote ? `Evidence note: ${context.evidenceNote}\n` : '';
+
   return `
 You are the developer who completed this work, and you are preparing a monday.com deployment update from git history and code changes.
 
@@ -105,23 +114,29 @@ How to Test
 Writing rules:
 - Write from my perspective as the developer who completed the work. The Description and Change Log sections must use first-person wording, such as "I updated", "I added", or "I improved".
 - Write for non-technical stakeholders who need to understand what I delivered and how it affects the product, not how the code was implemented.
+- Scope the report strictly to ${evidenceDescription}.
+- Treat the ${evidenceLabel} below as the complete evidence set. Do not use project files, local working tree state, uncommitted changes, base branch-only changes, external memory, or assumptions outside these inputs.
 - Description must briefly explain what I completed and why it matters to users or stakeholders. Avoid implementation jargon.
 - Change Log must be a brief human-readable list of what I changed. Do not include commit IDs, author names, commit dates, or raw git metadata.
 - How to Test must be written for a normal, non-technical web user. Use plain UI actions, expected on-screen results, and simple regression checks.
 - How to Test must not ask the reader to run commands, inspect code, check logs, or use developer tools.
-- Use the git change summaries and code diff. Do not invent product behavior that is not supported by the evidence.
-- If testing details cannot be known from the diff, provide a simple user-facing checklist and clearly label assumptions.
+- Do not describe any delivered behavior unless it is supported by the ${evidenceLabel} git change summaries, diff summary, changed file list, or unified diff below.
+- If testing details cannot be known from the ${evidenceLabel}, provide a simple user-facing checklist and clearly label assumptions.
+- If the ${evidenceLabel} shows no product-facing change, say that plainly instead of filling gaps.
 
-Report inputs:
+Report evidence:
 
 Environment: ${context.environment.code}
 Git Project: ${context.projectName}
-Project directory: ${context.projectRoot}
 Monday pulse ID: ${context.pulseId}
 Branch name: ${context.branchName}
 Resolved branch ref: ${context.branchRef}
+Branch tip: ${context.branchTip ?? context.branchRef}
 Base ref: ${context.baseRef}
 Merge base: ${context.mergeBase}
+Evidence scope: ${evidenceDescription}
+Evidence range: ${evidenceRange}
+${evidenceNote}
 
 Git change summaries:
 ${context.commitMessages}
@@ -140,24 +155,80 @@ ${context.unifiedDiff}
 export function collectGitContext(context, git = runGit) {
   const range = `${context.mergeBase}..${context.branchRef}`;
   const diffCharLimit = context.diffCharLimit ?? DEFAULT_DIFF_CHAR_LIMIT;
-  const commitMessages = git(context.projectRoot, [
-    'log',
-    '--pretty=format:- %s%n%b',
-    range
-  ]).trim();
-  const diffStat = git(context.projectRoot, ['diff', '--stat', '--find-renames', range]).trim();
-  const changedFiles = git(context.projectRoot, ['diff', '--name-status', '--find-renames', range]).trim();
-  const unifiedDiff = truncateText(
-    git(context.projectRoot, ['diff', '--find-renames', '--no-ext-diff', '--unified=80', range]),
-    diffCharLimit
-  ).trim();
+  const rangeEvidence = collectRangeEvidence(context.projectRoot, range, diffCharLimit, git);
+
+  if (hasGitEvidence(rangeEvidence)) {
+    return {
+      ...context,
+      ...formatGitEvidence(rangeEvidence, 'branch-only'),
+      evidenceDescription: `changes reachable from the provided branch ref and absent from the base ref: ${range}`,
+      evidenceLabel: 'branch-only evidence',
+      evidenceRange: range,
+      evidenceScope: 'branch-only'
+    };
+  }
+
+  const branchTip = context.branchTip ?? git(context.projectRoot, ['rev-parse', `${context.branchRef}^{commit}`]).trim();
+  const tipEvidence = collectCommitEvidence(context.projectRoot, branchTip, diffCharLimit, git);
+
+  if (hasGitEvidence(tipEvidence)) {
+    return {
+      ...context,
+      branchTip,
+      ...formatGitEvidence(tipEvidence, 'branch tip commit'),
+      evidenceDescription: `the latest commit currently at the provided branch ref: ${branchTip}`,
+      evidenceLabel: 'latest commit evidence from the provided branch',
+      evidenceNote: `The selected base already contains the branch tip, so ${range} has no branch-only changes. This fallback keeps the report based only on the provided branch ref.`,
+      evidenceRange: `${branchTip}^!`,
+      evidenceScope: 'branch-tip'
+    };
+  }
 
   return {
     ...context,
-    changedFiles: changedFiles || 'No changed files found.',
-    commitMessages: commitMessages || 'No branch-only commit messages found.',
-    diffStat: diffStat || 'No git diff summary found.',
-    unifiedDiff: unifiedDiff || 'No unified diff found.'
+    branchTip,
+    ...formatGitEvidence(rangeEvidence, 'branch-only'),
+    evidenceDescription: `changes reachable from the provided branch ref and absent from the base ref: ${range}`,
+    evidenceLabel: 'branch-only evidence',
+    evidenceRange: range,
+    evidenceScope: 'branch-only'
+  };
+}
+
+function collectRangeEvidence(projectRoot, range, diffCharLimit, git) {
+  return {
+    changedFiles: git(projectRoot, ['diff', '--name-status', '--find-renames', range]).trim(),
+    commitMessages: git(projectRoot, ['log', '--pretty=format:- %s%n%b', range]).trim(),
+    diffStat: git(projectRoot, ['diff', '--stat', '--find-renames', range]).trim(),
+    unifiedDiff: truncateText(
+      git(projectRoot, ['diff', '--find-renames', '--no-ext-diff', '--unified=80', range]),
+      diffCharLimit
+    ).trim()
+  };
+}
+
+function collectCommitEvidence(projectRoot, commit, diffCharLimit, git) {
+  return {
+    changedFiles: git(projectRoot, ['show', '--name-status', '--find-renames', '--format=', commit]).trim(),
+    commitMessages: git(projectRoot, ['show', '--pretty=format:- %s%n%b', '--no-patch', commit]).trim(),
+    diffStat: git(projectRoot, ['show', '--stat', '--find-renames', '--format=', commit]).trim(),
+    unifiedDiff: truncateText(
+      git(projectRoot, ['show', '--find-renames', '--no-ext-diff', '--unified=80', '--format=', commit]),
+      diffCharLimit
+    ).trim()
+  };
+}
+
+function hasGitEvidence(evidence) {
+  return Boolean(evidence.changedFiles || evidence.commitMessages || evidence.diffStat || evidence.unifiedDiff);
+}
+
+function formatGitEvidence(evidence, label) {
+  return {
+    changedFiles: evidence.changedFiles || 'No changed files found.',
+    commitMessages: evidence.commitMessages || `No ${label} commit messages found.`,
+    diffStat: evidence.diffStat || 'No git diff summary found.',
+    unifiedDiff: evidence.unifiedDiff || 'No unified diff found.'
   };
 }
 
@@ -297,9 +368,11 @@ function runCodexCli(prompt, projectRoot, env, command) {
   const args = buildCodexExecArgs({
     helpText: getCodexExecHelp(command, env),
     outputPath,
-    projectRoot
+    projectRoot,
+    workingDir: tempDir
   });
   const result = spawnSync(command, args, {
+    cwd: tempDir,
     encoding: 'utf8',
     env,
     input: prompt,
@@ -319,11 +392,15 @@ function runCodexCli(prompt, projectRoot, env, command) {
   return result.stdout;
 }
 
-export function buildCodexExecArgs({ helpText = '', outputPath, projectRoot }) {
+export function buildCodexExecArgs({ helpText = '', outputPath, projectRoot, workingDir = projectRoot }) {
   const args = ['exec'];
 
-  if (supportsCliOption(helpText, '--cd')) {
-    args.push('--cd', projectRoot);
+  if (workingDir && supportsCliOption(helpText, '--cd')) {
+    args.push('--cd', workingDir);
+  }
+
+  if (workingDir !== projectRoot && supportsCliOption(helpText, '--skip-git-repo-check')) {
+    args.push('--skip-git-repo-check');
   }
 
   if (supportsCliOption(helpText, '--sandbox')) {
