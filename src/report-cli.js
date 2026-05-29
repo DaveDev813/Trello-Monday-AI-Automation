@@ -2,13 +2,15 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import readline from 'node:readline/promises';
 
 import { readConfig } from './config.js';
 import { loadDotEnv } from './env.js';
 import { createMondayUpdate } from './monday.js';
 import { defaultReportPath, generateDeploymentReport } from './report.js';
+
+export const DEFAULT_REPORTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'reports');
 
 const HELP = `
 Usage:
@@ -231,7 +233,7 @@ async function writeDraftReport(args) {
     args.outputPath ||
     defaultReportPath({
       branchName: args.branchName,
-      outputDir: path.resolve(process.cwd(), 'reports'),
+      outputDir: DEFAULT_REPORTS_DIR,
       projectName: result.context.projectName,
       pulseId: args.pulseId
     });

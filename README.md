@@ -115,7 +115,7 @@ Equivalent named options:
 npm run report -- --project-dir /path/to/client-booking-portal-v2 --branch feature/boards/9255430878/pulses/12102530645 --env UAT --pulse-id 12102530645
 ```
 
-The command writes a Markdown draft under `reports/` and does **not** post to monday.com. Review and edit the file first. Then publish the reviewed version:
+The command writes a Markdown draft under this automation project's `reports/` folder, regardless of the terminal's current directory, and does **not** post to monday.com. Review and edit the file first. Then publish the reviewed version:
 
 ```sh
 npm run report -- --publish --pulse-id 12102530645 --file reports/<generated-report>.md

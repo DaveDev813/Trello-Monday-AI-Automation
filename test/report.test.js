@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-import { parseReportCliArgs } from '../src/report-cli.js';
+import { DEFAULT_REPORTS_DIR, parseReportCliArgs } from '../src/report-cli.js';
 import {
   buildCodexExecArgs,
   buildReportPrompt,
@@ -11,6 +13,8 @@ import {
   resolveCliCommand,
   truncateText
 } from '../src/report.js';
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('parseReportCliArgs accepts the four required positional report parameters', () => {
   assert.deepEqual(parseReportCliArgs(['/apps/client-booking-portal-v2', 'feature/x', 'LIVE', '123']), {
@@ -52,6 +56,10 @@ test('parseReportCliArgs accepts publish options', () => {
     pulseId: '123',
     yes: true
   });
+});
+
+test('default report directory is anchored to the automation project', () => {
+  assert.equal(DEFAULT_REPORTS_DIR, path.join(projectRoot, 'reports'));
 });
 
 test('normalizeEnvironment formats monday report environment lines', () => {
